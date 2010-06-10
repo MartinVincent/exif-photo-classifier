@@ -60,7 +60,7 @@ do
        	    # donc on commence avec ${arrTS[0]} si il existe et ensuite on descend vers ${arrTS[1]} ${arrTS[2]} etc
 
 	    # pour commencer on affecte a notre tableau arrTS les timestamps EXIF trouve avec soit jhead soit exiftool
-	    if [ $2 ] # si le 2e param est 1, on utilise exiftool, sinon jhead
+	    if [ "${2}" == "1" ] # si le 2e param est 1, on utilise exiftool, sinon jhead
 	    then
 		arrTS=(`exiftool -e --fast -CreateDate -DateTimeOriginal -FileModifyDate  -S -d "%s" ${fichierEnTraitement}  | \
                     sed -r "s/.*: ([0-9:]*).*/\1/"`);
@@ -113,9 +113,13 @@ do
 	    fi 
 	    
 
-	    # info pour debug : ls du fichier pre deplacement
-	    echo "INFO  : on copie/deplace ceci :" `ls -al ${fichierEnTraitement}`
-	  
+	    # info pour debug : ls et md5sum du fichier pre deplacement
+	    md5FichierenTraitement=`md5sum ${fichierEnTraitement} | cut -c1-32`
+	    echo "INFO  : on copie/deplace ceci : [$md5FichierenTraitement] " `ls -al ${fichierEnTraitement}`
+	    
+	    # et on s'apprete a copier par dessus :
+	    md5FichierExistant=`md5sum ./${DEST}/${arrRepertoire[$i]} | cut -c1-32`
+	    echo "INFO  : sur ceci : [$md5FichierExistant] " `ls -al ./${DEST}/${arrRepertoire[$i]}`
 
             # debut d'une section de chronometrage
 	    START=$(date +%s.%N)
@@ -123,10 +127,11 @@ do
 
 
 
+	    
 
 	    # on deplace/copie le fichier ICI (si $3 vaut 1, on fait MV, sinon CP /; par defaut c'est donc CP)
 	    # exif-photo-classifier.sh src 0 1
-	    if [ $3 ]
+	    if [ "${3}" == "1" ]
 	    then
 		mv ${fichierEnTraitement} ${DEST}
 		echo "INFO  : deplacement de : ${fichierEnTraitement} vers : ${DEST} : $(echo "$(date +%s.%N) - $START" | bc) secondes";
@@ -142,7 +147,7 @@ do
 	    let nbrFichierTraites++
 
 	    # info pour debug : ls du fichier post deplacement
-	    echo -n "INFO  :       dans ${DEST} :" `ls -al ./${DEST}/${arrRepertoire[$i]}`
+	    echo -n "INFO  :       dans ${DEST} : [$md5FichierExistant] " `ls -al ./${DEST}/${arrRepertoire[$i]}`
 	    echo "";
 	    echo "INFO  : traitement de ${fichierEnTraitement} : $(echo "$(date +%s.%N) - $STARTFICHIER" | bc) secondes";echo "";echo "";
             
