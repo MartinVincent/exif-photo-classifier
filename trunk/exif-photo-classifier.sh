@@ -1,4 +1,6 @@
 #!/bin/bash
+# $Id$
+
 # pour chaque fichier, le comparer aux signatures de
 # fichiers déjà présent dans le répertoire de destination, puis :
 # ATTENTION : quoi faire avec les fichiers connexes ? [Picasa.ini, *.MPG, *.THM etc...]
@@ -8,6 +10,8 @@ STARTGLOBAL=$(date +%s.%N)
 nbrFichierTraites=0;
 SRC=$1
 
+SSDEEP=/usr/local/bin/ssdeep
+[ ! -x "${SSDEEP}" ] && echo "ERREUR : ${SSDEEP} n'esxiste pas" && exit;
 
 detox -r -v -s utf_8 "${SRC}"
 detox -r -v -s lower "${SRC}"
@@ -29,7 +33,7 @@ function effacer {
 		  echo
 		  exit 0
 	 fi
-	 exit 1
+	 return 1
 }
 
 
@@ -44,7 +48,7 @@ function deplacer {
 		  echo
 		  exit 0
 	 fi
-	 exit 1
+	 return 1
 }
 
 
@@ -59,14 +63,14 @@ function copier {
 		  echo
 		  exit 0
 	 fi
-	 exit 1
+	 return 1
 }
 
 
 
-function signatures_md5_sont_identiques {
+function renommer {
 
-	 echo "INFO  : signatures_md5_sont_identiques";
+	 echo "INFO  : renommer";
 	 if [ $? -ne 0 ]; then
 		  echo
 		  echo "Directory does not exists"
@@ -74,22 +78,46 @@ function signatures_md5_sont_identiques {
 		  echo
 		  exit 0
 	 fi
-	 exit 1
+	 return 1
+}
+
+
+function signatures_md5_sont_identiques {
+
+	 fichier_1=(`md5sum ${1}  2>/dev/null | cut -c1-32 `)
+	 fichier_2=(`md5sum ${2}  2>/dev/null | cut -c1-32 `)
+
+
+	 echo "INFO  : signatures_md5_sont_identiques()  : debut traitement de $1 et $2";
+
+	 if [ "${fichier_1}" == "${fichier_2}" ]
+	 then
+		  return 1;
+	 else
+		  return 0;
+	 fi
 }
 
 
 
 function signatures_SSD_sont_identiques {
 
-	 echo "INFO  : signatures_SSD_sont_identiques";
-	 if [ $? -ne 0 ]; then
-		  echo
-		  echo "Directory does not exists"
-		  echo "Please try again."
-		  echo
-		  exit 0
+	 fichier_1=${1}
+	 fichier_2=${2}
+
+	 echo "INFO  : signatures_SSD_sont_identiques()  : debut traitement de $1 et $2";
+
+	 ssdeep -s -b ${fichier_1} > /tmp/sig.txt
+
+	 ssdeepres=(`ssdeep -bm /tmp/sig.txt ${fichier_2} | sed -r "s/.*\(([0-9]*)\)/\\1/"`)
+
+    if(( ssdeepres > 98 )) # [ $ssdeepres -gt 98 ]
+	 then
+		  return 0
+	 else
+		  return 0
 	 fi
-	 exit 1
+
 }
 
 
@@ -97,15 +125,18 @@ function signatures_SSD_sont_identiques {
 
 function noms_de_fichier_sont_identiques {
 
-	 echo "INFO  : noms_de_fichier_sont_identiques";
-	 if [ $? -ne 0 ]; then
-		  echo
-		  echo "Directory does not exists"
-		  echo "Please try again."
-		  echo
-		  exit 0
+	 fichier_1=(`basename ${1}`)
+	 fichier_2=(`basename ${2}`)
+
+
+	 echo "INFO  : noms_de_fichier_sont_identiques() : debut traitement de $fichier_1 $fichier_2";
+
+	 if [ "${fichier_1}" == "${fichier_2}" ]
+	 then
+		  return 1;
+	 else
+		  return 0
 	 fi
-	 exit 1
 }
 
 
@@ -138,7 +169,8 @@ do
 
 
     # on boucle sur les elements du tableau
-    #  - traitement sur chacun des fichiers (md5, ssdeep; extraction exiftool de J,M,A; deplacement vers DEST etc)
+    #  - traitement sur chacun des fichiers (md5, ssdeep; extraction exiftool de J,M,A;
+	 #    deplacement vers DEST etc)
     #  - creation structure repertoire AAAA/MM/JJ
     #  - traitement fichier autres que photos : .THM, .MPG, picasa.ini, .db etc.
 
@@ -148,8 +180,11 @@ do
 	     # memorisation du rep/nom du fichier en traitement
 		  fichierEnTraitement="./${DIR}/${arrRepertoire[$i]}";
 
-        # on determine qu'il s'agit bien de fichier et non pas de repertoire ou symlink, puis si oui, on commence le traitement
-        if [[ -f  "${fichierEnTraitement}"  &&  "${fichierEnTraitement}" != "./${DIR}/Thumbs.db" &&  "${fichierEnTraitement}" != "./${DIR}/thumbs.db" ]]
+        # on determine qu'il s'agit bien de fichier et non pas de repertoire ou symlink,
+		  # puis si oui, on commence le traitement
+        if [[ -f  "${fichierEnTraitement}"  &&
+						  "${fichierEnTraitement}" != "./${DIR}/Thumbs.db" &&
+						  "${fichierEnTraitement}" != "./${DIR}/thumbs.db" ]]
         then
 
 	         # debut d'une section de chronometrage
@@ -159,21 +194,28 @@ do
 				START=$(date +%s.%N)
 
 
-            # ce tableau (arrTS) contient tout les timestamps dispo [ soit CreateDate, DateTimeOriginal, FileModifyDate et stat etc.]
-	         # vu que les timestamps sont inserer dans le tableau dans l'ordre adcendant, l'element [0] contient le timestamp le plus ancien et qui
-     	      # correspond probablement a la date de prise de la photo [CreateDate]. Exception possible : erreur quelconque qui fait que [0]
+            # ce tableau (arrTS) contient tout les timestamps dispo [ soit CreateDate,
+				# DateTimeOriginal, FileModifyDate et stat etc.]
+	         # vu que les timestamps sont inserer dans le tableau dans l'ordre adcendant,
+				# l'element [0] contient le timestamp le plus ancien et qui
+     	      # correspond probablement a la date de prise de la photo [CreateDate].
+				# Exception possible : erreur quelconque qui fait que [0]
 	         # pourrait contenir 1janvier1970. Les autres elements [1],[2] etc. contiennent
 	         # des timestamps plus recents [DateTimeOriginal] [FileModifyDate] et [stat %Y]
-       	   # donc on commence avec ${arrTS[0]} si il existe et ensuite on descend vers ${arrTS[1]} ${arrTS[2]} etc
+       	   # donc on commence avec ${arrTS[0]} si il existe et ensuite on
+				# descend vers ${arrTS[1]} ${arrTS[2]} etc
 
- 	         # pour commencer on affecte a notre tableau arrTS les timestamps EXIF trouve avec soit jhead soit exiftool
+ 	         # pour commencer on affecte a notre tableau arrTS les timestamps EXIF
+				# trouve avec soit jhead soit exiftool
 				if [ "${2}" == "1" ] # si le 2e param est 1, on utilise exiftool, sinon jhead
 				then
-					 arrTS=(`exiftool -e --fast -CreateDate -DateTimeOriginal -FileModifyDate  -S -d "%s" ${fichierEnTraitement}  | \
+					 arrTS=(`exiftool -e --fast -CreateDate -DateTimeOriginal -FileModifyDate \
+					      -S -d "%s" ${fichierEnTraitement}  | \
                     sed -r "s/.*: ([0-9:]*).*/\1/"`);
 					 echo "INFO  : traitement exiftooljhead : $(echo "$(date +%s.%N) - $START" | bc) secondes";
 				else
-					 jheadTS=(`jhead -q  ${fichierEnTraitement} 2>/dev/null| grep "Date/Time" | sed -r "s/.*: ([0-9:]*).*/\1/" | tr -d ':' `)
+					 jheadTS=(`jhead -q  ${fichierEnTraitement} 2>/dev/null| grep "Date/Time" | \
+					           sed -r "s/.*: ([0-9:]*).*/\1/" | tr -d ':' `)
 					 arrTS=(`date -d ${jheadTS} +%s 2>/dev/null`);
 					 echo "INFO  : traitement jhead : $(echo "$(date +%s.%N) - $START" | bc) secondes";
 				fi
@@ -182,11 +224,13 @@ do
 				START=$(date +%s.%N)
 
 
-	         # ensuite si necess (c.a.d. le tableau arrTS n'as pas ete remplie par exiftool/jhead et est donc vide) et
+	         # ensuite si necess (c.a.d. le tableau arrTS n'as pas ete remplie par
+				# exiftool/jhead et est donc vide) et
 	         # en dernier recours, on affecte le timestamp du fichier lui-meme
 				if [ "${#arrTS[*]}" == "0" ]
 				then
-		          # on utilise 'stat' pour extraire le %Y = 'Time of last modification as seconds since Epoch'
+		          # on utilise 'stat' pour extraire le %Y = 'Time of last modification as
+					 # seconds since Epoch'
 					 echo "INFO  : pas de date EXIF, on utilise 'stat'...";
 					 StatTS=(`stat --format='%Y'  ${fichierEnTraitement}  `);
 		          # on ajoute ce timestamp a notre tableau
@@ -225,15 +269,18 @@ do
 
 	         # info pour debug : ls et md5sum du fichier pre deplacement
 				md5FichierenTraitement=`md5sum ${fichierEnTraitement}  2>/dev/null | cut -c1-32 `
-				echo "INFO  : on s'apprete a copie/deplace ceci : [$md5FichierenTraitement] " `ls -al ${fichierEnTraitement} 2>/dev/null`
+				echo "INFO  : on s'apprete a copie/deplace ceci : [$md5FichierenTraitement] " \
+				              `ls -al ${fichierEnTraitement} 2>/dev/null`
 
 	         # et on s'apprete a copier par dessus :
 				md5FichierExistant=`md5sum ./${DEST}/${arrRepertoire[$i]}  2>/dev/null | cut -c1-32 `
-				echo "INFO  : sur ceci : [$md5FichierExistant] " `ls -al ./${DEST}/${arrRepertoire[$i]} 2>/dev/null`
+				echo "INFO  : sur ceci : [$md5FichierExistant] " `ls -al ./${DEST}/${arrRepertoire[$i]} \
+				              2>/dev/null`
 
 
 
 				signatures_md5_sont_identiques ${fichierEnTraitement} ./${DEST}/${arrRepertoire[$i]}
+				md5retcode=$?
 
 				if [ "$md5retcode" == "1" ]
 				then
@@ -243,7 +290,9 @@ do
 				elif [ "$md5retcode" == "0" ]
 				then
 					 # sig md5 sont differentes, on va test plus loin avec ssdeep
-					 ssdretcode=signatures_SSD_sont_identiques  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
+					 signatures_SSD_sont_identiques  ${fichierEnTraitement} \
+					            ./${DEST}/${arrRepertoire[$i]}
+					 ssdretcode=$?
 
 					 if [ "$ssdretcode" == "1" ]
 					 then
@@ -253,13 +302,15 @@ do
 					 elif [ "$ssdretcode" == "0" ]
 					 then
 						  # sig ssdeep sont differentes, on va test plus loin avec les noms de fichiers
-						  nomretcode=noms_de_fichier_sont_identiques  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
+						  noms_de_fichier_sont_identiques  ${fichierEnTraitement} \
+						             ./${DEST}/${arrRepertoire[$i]}
+						  nomretcode=$?
 
 						  if [ "$nomretcode" == "1" ]
 						  then
 								renommer  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
 								copier  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
-								if [ "${?}" == "0" ]
+								if [ "${param-move}" == "0" ]
 								then
 									 effacer  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
 								fi
@@ -267,21 +318,21 @@ do
 						  then
 								# noms de ficheirs sont differents
 								copier  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
-								if [ "${?}" == "0" ]
+								if [ "${param-move}" == "0" ]
 								then
 									 effacer  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
 								fi
 						  else
 								# sig ssdeep sont egales
-								echo "erreur ds noms_de_fichier_sont_identiques"
+								echo "erreur ds noms_de_fichier_sont_identiques [$?]"
 						  fi
 					 else
 						  # sig ssdeep sont egales
-						  echo "erreur ds signatures_SSD_sont_identiques"
+						  echo "erreur ds signatures_SSD_sont_identiques [$?]"
 					 fi
 				else
 					 # erreur
-					 echo "erreur ds signatures_md5_sont_identiques"
+					 echo "erreur ds signatures_md5_sont_identiques [$?]"
  				fi
 
 
@@ -296,10 +347,12 @@ do
 # 				if [ "${3}" == "1" ]
 # 				then
 # 					 mv ${fichierEnTraitement} ${DEST}
-# 					 echo "INFO  : deplacement de : ${fichierEnTraitement} vers : ${DEST} : $(echo "$(date +%s.%N) - $START" | bc) secondes";
+# 					 echo "INFO  : deplacement de : ${fichierEnTraitement} vers : ${DEST} : \
+#                              $(echo "$(date +%s.%N) - $START" | bc) secondes";
 # 				else
 # 					 cp  --backup=numbered --preserve=all ${fichierEnTraitement} ${DEST}
-# 					 echo "INFO  : copie de : ${fichierEnTraitement} vers : ${DEST} : $(echo "$(date +%s.%N) - $START" | bc) secondes";
+# 					 echo "INFO  : copie de : ${fichierEnTraitement} vers : \
+#                             ${DEST} : $(echo "$(date +%s.%N) - $START" | bc) secondes";
 # 				fi
 
 
@@ -311,7 +364,8 @@ do
 		      # info pour debug : ls du fichier post deplacement
 				echo -n "INFO  :       dans ${DEST} : [$md5FichierExistant] " `ls -al ./${DEST}/${arrRepertoire[$i]}`
 				echo "";
-				echo "INFO  : traitement de ${fichierEnTraitement} : $(echo "$(date +%s.%N) - $STARTFICHIER" | bc) secondes";echo "";echo "";
+				echo "INFO  : traitement de ${fichierEnTraitement} : $(echo "$(date +%s.%N) - $STARTFICHIER"\
+				               | bc) secondes";echo "";echo "";
 
 
 		  else
