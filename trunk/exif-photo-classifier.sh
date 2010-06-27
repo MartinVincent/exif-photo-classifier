@@ -14,6 +14,13 @@
 # ex : exif-photo-classifier.sh ~/Pictures/ 2>logfile.txt | tee logfile.txt
 
 
+# tests :
+# 0. fichiers de diff types correctement deplace/copie
+# 1. touch du fichier de l'ancien rep correctement cree
+# 2. concatenation des donnees picasa le cas echeant
+
+
+
 STARTGLOBAL=$(date +%s.%N)
 
 CP=/bin/cp
@@ -30,12 +37,12 @@ nbrFichierRenomme=0;
 nbrFichierEfface=0;
 nbrErreur=0;
 
+
 SRC=$1
 DEST=""
 
 OUTILS=${2:-"0"}
 DEPLACE=${3:-"0"}
-
 
 
 
@@ -51,17 +58,26 @@ fi
 
 
 SSDEEP=/usr/local/bin/ssdeep
-[ ! -x "${SSDEEP}" ] && echo "ERREUR : ${SSDEEP} n'esxiste pas" && exit;
+[ ! -x "${SSDEEP}" ] && logerreur "ERREUR : ${SSDEEP} n'esxiste pas" && exit;
 
 detox -r -v -s utf_8 "${SRC}"
-detox -r -v -s lower "${SRC}"
+# hummm...ca brise la rechereche de nom dans les Picasa.ini ...
+# detox -r -v -s lower "${SRC}"
 
 
 
 
 
 ########################################################################
-# fonctions
+########################################################################
+# fonctions ci-dessous
+########################################################################
+########################################################################
+
+
+
+########################################################################
+# effacer : efface le ficheir passer en param $1
 ########################################################################
 function effacer {
 
@@ -83,7 +99,9 @@ function effacer {
   return 1
 }
 
-
+########################################################################
+# copier : copie le fichier $1 (param 1) vers le fichier $2 (param 2)
+########################################################################
 function copier {
 
   fichier_1=${1}
@@ -94,30 +112,88 @@ function copier {
   $CP -fp $fichier_1 $fichier_2
 
   if [ $? -ne 0 ]; then
-    echo "ERREUR : copier() : $fichier_1 et $fichier_2";
+    logerreur "ERREUR : copier() : $fichier_1 et $fichier_2";
     exit 0
   fi
 
-  # on memorise l'ancien rep ou se trouvait l'image
-  ancien_repertoire=(`dirname ${fichier_1} | tr '/' '_'`)
-  nouveau_repertoire=(`dirname ${fichier_2}`)
 
-  $TOUCH $nouveau_repertoire/"ANCIEN_REP_SRC-"$ancien_repertoire
   let nbrFichierCopie++
   return 1
 }
 
+########################################################################
+# copier : memorise le rep d'origine d'un ficheir
+#   en faisant un 'touch' sur un fichier vide avec le nom du rep
+########################################################################
+function memorise_ancien_rep {
+  fichier_1=${1}
+  fichier_2=${2}
 
+  # extraction l'ancien rep ou se trouvait l'image
+  ancien_repertoire=(`echo ${fichier_1} | tr '/' '_'`)
+  # extraction du nouveau rep de destination
+  nouveau_repertoire=${fichier_2}
 
-function renommer {
+  # ds le rep de dest, on cree un fichier vide afin de memoriser les
+  # differents rep d'origine des photos
+  $TOUCH $nouveau_repertoire/"ANCIEN_REP_SRC-"$ancien_repertoire
+}
+
+########################################################################
+# traitement_picasa : on fait le traitement picasa,
+#   c.a.d.: on fait suivre les donnees picasa.ini
+#   du fichier en cours de traitement vers son nouveau rep
+#   -> on copie ds dest/picasa.ini la section [fichier.jpg] si presente
+########################################################################
+function traitement_picasa {
 
   fichier_1=${1}
-  fichier_dest=(`basename ${1}`)
-  rep_dest=${2}
+  fichier_2=${2}
 
-  echo "INFO $DRY_RUN  : renommer()  : debut traitement de $fichier_1";
+	# copy Picasa.ini entries
+	srcDir=`dirname "$fichier_1"`
 
-  copier $rep_dest/$fichier_dest $rep_dest/"BACKUP."`date +"%dj%mm%Ya_%Hh%Mm%Ss"  | tr \'[:upper:]\' \'[:lower:]\'`.$fichier_dest
+	if [ -e "$srcDir/Picasa.ini" ]; then
+
+		srcFileName=`basename "$fichier_1"`
+		destDir=`dirname "$fichier_2"`
+		destFileName=`basename "$fichier_2"`
+
+		# setup new Picasa.ini
+		if [ ! -e "$destDir/Picasa.ini" ]; then
+			echo -e -n '[encoding]\x0D\x0Autf8=1\x0D\x0A' \
+				> "$destDir/Picasa.ini"
+		fi
+
+		# read picasa.ini add [ to start for gawk
+		echo "\[" | cat - "$srcDir/Picasa.ini" | \
+
+		# separate on [ and print first entry with $srcFileName
+		gawk 'BEGIN {RS="[";m=0} /'"$srcFileName"'/ {m++; if(m==1) print}' | \
+
+		# replace old name with the new file name
+		sed "s/$srcFileName\]/\[$destFileName\]/" | \
+
+		# remove blank lines and convert to CRLF  [ ci-dessous : trouve pas u2d ds grep '.' | u2d -D >> ]
+		grep '.' |  sed 's/$'"/`echo \\\r`/" "$destDir/Picasa.ini"
+	fi
+
+  return 1;
+}
+
+########################################################################
+# renommer : renomme le fichier $1 (param 1) vers le fichier $2 (param 2)
+########################################################################
+function renommer {
+
+  fichier_src=(`basename ${1}`)
+  rep_src=(`dirname ${1}`)
+  fichier_dest=(`basename ${2}`)
+  rep_dest=(`dirname ${2}`)
+
+  echo "INFO $DRY_RUN  : renommer()  : debut traitement de $fichier_src";
+
+  copier $rep_src/$fichier_src $rep_dest/"BACKUP."`date +"%dj%mm%Ya_%Hh%Mm%Ss"  | tr \'[:upper:]\' \'[:lower:]\'`.$fichier_dest
 
   # on veut pas compter 2 fois cette copie
   let nbrFichierCopie--
@@ -127,7 +203,10 @@ function renommer {
   return $?
 }
 
-
+########################################################################
+# signatures_md5_sont_identiques : compare les sig md5 de fichier $1 (param 1)
+#   et fichier $2 (param 2); retourne 1 si identiques, 0 sinon
+########################################################################
 function signatures_md5_sont_identiques {
 
   fichier_1=${1}
@@ -136,24 +215,26 @@ function signatures_md5_sont_identiques {
   md5fichier_1=(`md5sum ${fichier_1}  2>/dev/null | cut -c1-32 `)
   md5fichier_2=(`md5sum ${fichier_2}  2>/dev/null | cut -c1-32 `)
 
-
-
-
   # echo "INFO $DRY_RUN  : signatures_md5_sont_identiques()  : debut traitement de $fichier_1 et $fichier_2";
 
   if [ "${md5fichier_1}" == "${md5fichier_2}" ]
   then
+    # fichiers identiques
     echo "INFO $DRY_RUN  : signatures_md5_sont_identiques()  : $fichier_1 [${md5fichier_1}] === \
       $fichier_2 [${md5fichier_2}]";
     return 1;
   else
+    # fichiers sont differents
     echo "INFO $DRY_RUN  : signatures_md5_sont_identiques()  : $fichier_1 [${md5fichier_1}] !== $fichier_2 [${md5fichier_2}]";
     return 0;
   fi
 }
 
-
-
+########################################################################
+# signatures_SSD_sont_identiquesr : compare les sig ssdeep de fichier $1
+#   (param 1) et fichier $2 (param 2); retroune 1 si leur % de
+#   similitude estsuperieur ou egale a 'limite', 0 sinon
+########################################################################
 function signatures_SSD_sont_identiques {
 
   # au sujet de la vaiable 'limite' ci-dessous
@@ -178,10 +259,12 @@ function signatures_SSD_sont_identiques {
 
   if [ $ssdeepres -ge $limite ]
   then
+    # fichiers ont un % de similitude superieur ou egale a 'limite'
     echo "INFO $DRY_RUN  : signatures_SSD_sont_identiques()  : 1 ssdeep retourne $ssdeepres \
       pour ${md5fichier_1} et ${md5fichier_2} et limite = $limite";
     return 1
   else
+    # fichiers sont suffisament different pour avoir un % de similitude inferieur a 'limite'
     echo "INFO $DRY_RUN  : signatures_SSD_sont_identiques()  : 0 ssdeep retourne $ssdeepres \
       pour ${md5fichier_1} et ${md5fichier_2} et limite = $limite";
     return 0
@@ -189,9 +272,10 @@ function signatures_SSD_sont_identiques {
 
 }
 
-
-
-
+########################################################################
+# noms_de_fichier_sont_identiques : compare les noms de fichier $1
+#   (param 1) et fichier $2 (param 2); retourne 1 si identiques, 0 sinon
+########################################################################
 function noms_de_fichier_sont_identiques {
 
   fichier_1=(`basename ${1}`)
@@ -202,8 +286,10 @@ function noms_de_fichier_sont_identiques {
 
   if [ "${fichier_1}" == "${fichier_2}" ]
   then
+    # meme noms
     return 1;
   else
+    # nom differents
     return 0
   fi
 }
@@ -211,24 +297,24 @@ function noms_de_fichier_sont_identiques {
 
 
 
-
+########################################################################
+# logerreur : affiche les erreurs et incremente un compteur
+########################################################################
 function logerreur {
   echo $1;
   let nbrErreur++
-
 }
 
 
 
-
-
-
-
-
-
+########################################################################
+########################################################################
 ########################################################################
 # code principal
 ########################################################################
+########################################################################
+########################################################################
+
 
 for DIR in `find "${SRC}" -depth -type d -print 2> /dev/null`;
 # -depth = :
@@ -244,6 +330,7 @@ do
 #   fi
 
   # traitement sur les fichiers trouve ds le repertoire $DIR
+  # traitement picasa.ini
 
   # on met les fichiers du rep DIR dans un tableau
   arrRepertoire=( ` ls  "${DIR}" ` ) ;
@@ -268,7 +355,9 @@ do
       # puis si oui, on commence le traitement
       if [[ -f  "${fichierEnTraitement}"  &&
             "${arrRepertoire[$i]}" != "Thumbs.db" &&
-            "${arrRepertoire[$i]}" != "thumbs.db" ]]
+            "${arrRepertoire[$i]}" != "thumbs.db" &&
+            "${arrRepertoire[$i]}" != "Picasa.ini" &&
+            "${arrRepertoire[$i]}" != "picasa.ini" ]]
       then
 
         # debut d'une section de chronometrage
@@ -344,7 +433,7 @@ do
             echo "INFO $DRY_RUN  : traitement mkdir ${DEST} : $(echo "$(date +%s.%N) - $START" | bc) secondes";
           fi
         else
-          echo "ERREUR : pas de timestamp pour : ${fichierEnTraitement} ... fin du programme.";
+          logerreur "ERREUR  : pas de timestamp pour : ${fichierEnTraitement} ... fin du programme.";
           exit;
         fi
 
@@ -362,6 +451,8 @@ do
 
           # copier le nouveau fichier ds DEST
           copier  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
+          memorise_ancien_rep ${DIR} ./${DEST}/  #${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
+          traitement_picasa ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
 
           if [ "${DEPLACE}" == "1" ]
           then
@@ -415,10 +506,12 @@ do
               then
 
                 # faire backup du fichier existant
-                renommer  ${fichierEnTraitement} ./${DEST}/
+                renommer  ${fichierEnTraitement} ./${DEST}/${arrRepertoire[$i]}
 
                 # copier le nouveau fichier ds DEST
                 copier  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
+                memorise_ancien_rep ${DIR} ./${DEST}/  #${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
+                traitement_picasa  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
 
                 if [ "${DEPLACE}" == "1" ]
                 then
@@ -429,6 +522,9 @@ do
 
                 # noms de ficheirs sont differents
                 copier  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
+                memorise_ancien_rep ${DIR} ./${DEST}/  #${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
+                traitement_picasa   ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
+
                 if [ "${DEPLACE}" == "1" ]
                 then
                   effacer  ${fichierEnTraitement}
@@ -436,39 +532,17 @@ do
               else
 
                 # sig ssdeep sont egales
-                echo "ERREUR : ds noms_de_fichier_sont_identiques [$?]"
+                logerreur "ERREUR : ds noms_de_fichier_sont_identiques [$?]"
               fi
             else
 
               # sig ssdeep sont egales
-              echo "ERREUR : ds signatures_SSD_sont_identiques [$?]"
+              logerreur "ERREUR : ds signatures_SSD_sont_identiques [$?]"
             fi
           else
             # erreur
-            echo "ERREUR : ds signatures_md5_sont_identiques [$?]"
+            logerreur "ERREUR : ds signatures_md5_sont_identiques [$?]"
           fi
-
-           # echo ""
-           # echo "INFO $DRY_RUN  :       dans ${DEST} : [$md5FichierExistant] " `ls -al ./${DEST}/${arrRepertoire[$i]}`
-
-
-#           # debut d'une section de chronometrage
-#         START=$(date +%s.%N)
-
-
-#           # on deplace/copie le fichier ICI (si $3 vaut 1, on fait MV, sinon CP /; par defaut c'est donc CP)
-#           # exif-photo-classifier.sh src 0 1
-#         if [ "${DEPLACE}" == "1" ]
-#         then
-#            mv ${fichierEnTraitement} ${DEST}
-#            echo "INFO $DRY_RUN  : deplacement de : ${fichierEnTraitement} vers : ${DEST} : \
-#                              $(echo "$(date +%s.%N) - $START" | bc) secondes";
-#         else
-#            cp  --backup=numbered --preserve=all ${fichierEnTraitement} ${DEST}
-#            echo "INFO $DRY_RUN  : copie de : ${fichierEnTraitement} vers : \
-#                             ${DEST} : $(echo "$(date +%s.%N) - $START" | bc) secondes";
-#         fi
-
 
         fi
 
