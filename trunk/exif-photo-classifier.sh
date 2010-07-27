@@ -531,7 +531,7 @@ do
         copier  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
         ancien_rep ${DIR} ./${DEST}/${arrRepertoire[$i]}  #${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
         picasa ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
-        picasa  ${SRC}/${arrRepertoire[$i]}  ./${DEST}/${arrRepertoire[$i]}
+
 
         if [ "${DEPLACE}" == "1" ]
         then
@@ -591,7 +591,7 @@ do
               copier  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
               ancien_rep ${DIR} ./${DEST}/${arrRepertoire[$i]}  #${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
               picasa  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
-              picasa  ${SRC}/${arrRepertoire[$i]}  ./${DEST}/${arrRepertoire[$i]}
+
 
               if [ "${DEPLACE}" == "1" ]
               then
@@ -604,7 +604,7 @@ do
               copier  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
               ancien_rep ${DIR} ./${DEST}/${arrRepertoire[$i]}  #${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
               picasa   ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
-              picasa  ${SRC}/${arrRepertoire[$i]}  ./${DEST}/${arrRepertoire[$i]}
+
 
               if [ "${DEPLACE}" == "1" ]
               then
