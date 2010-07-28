@@ -187,13 +187,13 @@ function picasa {
   then
     srcPicasa=".picasa.ini"
   else
-    logmessage "INFO" "fichier $srcDir/[.pP]icasa.ini n'existe pas" "DEBUG_0";
+    logmessage "INFO" "fichier SRC $srcDir/[.pP]icasa.ini n'existe pas, rien a faire" "DEBUG_0";
     return 1
   fi
 
 
 
-  # setup new Picasa.ini
+  # setup new Picasa.ini ( source : http://kevinmuma.com/photos/sort_imgs.sh.txt )
   if [ ! -e "$destDir/picasa.ini" ];
   then
     logmessage "INFO" "creation d'un fichier vierge : $destDir/picasa.ini" "DEBUG_0";
@@ -476,6 +476,7 @@ do
       START=$(date +%s.%N)
 
 
+
       # ensuite si necess (c.a.d. le tableau arrTS n'as pas ete remplie par
       # exiftool/jhead et est donc vide) et
       # en dernier recours, on affecte le timestamp du fichier lui-meme
@@ -551,6 +552,13 @@ do
 
         if [ "$md5retcode" == "1" ]
         then
+          # meme si le fichier ds SRC existe deja et est identique (,d5) a celui
+          # ds DEST, il se peut qu'un autre usager ait apporter des changements
+          # via Picasa au fichier picasa.ini se trouvant ds SRC,
+          # on tente donc de memoriser (concatener) ces changements.
+          picasa ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
+          # logique identique pour ancien repertoire
+          ancien_rep ${DIR} ./${DEST}/${arrRepertoire[$i]}
 
           # effacer ou ignorer fichier source, car md5 identique = fichiers identiques
           if [ "${DEPLACE}" == "1" ]
@@ -581,48 +589,40 @@ do
               ./${DEST}/${arrRepertoire[$i]}
             nomretcode=$?
 
-            if [ "$nomretcode" == "1" ]
-            then
+            case "$nomretcode" in
+              1 | 0 )
 
-              # faire backup du fichier existant
-              renommer  ${fichierEnTraitement} ./${DEST}/${arrRepertoire[$i]}
+                if [ "$nomretcode" == "1" ]
+                then
+                  # faire backup du fichier existant
+                  renommer  ${fichierEnTraitement} ./${DEST}/${arrRepertoire[$i]}
+                fi
 
-              # copier le nouveau fichier ds DEST
-              copier  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
-              ancien_rep ${DIR} ./${DEST}/${arrRepertoire[$i]}  #${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
-              picasa  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
+                # copier le nouveau fichier ds DEST
+                copier  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
+                ancien_rep ${DIR} ./${DEST}/${arrRepertoire[$i]}  #${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
+                picasa  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
 
+                if [ "${DEPLACE}" == "1" ]
+                then
+                  effacer  ${fichierEnTraitement}
+                fi
+                ;;
 
-              if [ "${DEPLACE}" == "1" ]
-              then
-                effacer  ${fichierEnTraitement}
-              fi
-            elif [ "$nomretcode" == "0" ]
-            then
+              * )
+                # sig ssdeep sont egales
+                logmessage "ERREUR" "ds verif_nom; code de retour inconnu [$nomretcode]"
+                ;;
+            esac
 
-              # noms de ficheirs sont differents
-              copier  ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
-              ancien_rep ${DIR} ./${DEST}/${arrRepertoire[$i]}  #${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
-              picasa   ${fichierEnTraitement}  ./${DEST}/${arrRepertoire[$i]}
-
-
-              if [ "${DEPLACE}" == "1" ]
-              then
-                effacer  ${fichierEnTraitement}
-              fi
-            else
-
-              # sig ssdeep sont egales
-              logmessage "ERREUR" "ds verif_nom [$?]"
-            fi
           else
 
             # sig ssdeep sont egales
-            logmessage "ERREUR" "ds verif_ssd [$?]"
+            logmessage "ERREUR" "ds verif_ssd; code de retour inconnu [$ssdretcode]"
           fi
         else
           # erreur
-          logmessage "ERREUR" "ds verif_md5 [$?]"
+          logmessage "ERREUR" "ds verif_md5; code de retour inconnu [$md5retcode]"
         fi
 
       fi
